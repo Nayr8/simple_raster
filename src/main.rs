@@ -96,8 +96,14 @@ fn main() {
         near,
         far,
     );
+
+    let mut model_transform = Matrix4::identity();
+    let mut model_rotation_angle = 0.0;
+    let model_rotation_speed = 0.01;
+
     renderer.storage_mut().set_mat4s(vec![
         camera.view_projection,
+        model_transform,
     ]);
 
 
@@ -105,8 +111,13 @@ fn main() {
 
     renderer.draw_mesh(mesh, &shader);
 
+    let window_options = minifb::WindowOptions {
+        resize: true,
+        scale_mode: minifb::ScaleMode::Stretch,
+        ..Default::default()
+    };
 
-    let mut window = minifb::Window::new("Simple Raster", WIDTH, HEIGHT, minifb::WindowOptions::default()).unwrap();
+    let mut window = minifb::Window::new("Simple Raster", WIDTH, HEIGHT, window_options).unwrap();
     window.set_target_fps(100);
     let mut now = Instant::now();
     while window.is_open() && !window.is_key_down(Key::Escape) {
@@ -138,10 +149,14 @@ fn main() {
             camera.rotation.y += rotation_speed;
         }
 
-
         camera.update_view();
+
+        model_rotation_angle += model_rotation_speed;
+        let model_rotation = Rotation3::from_axis_angle(&Vector3::y_axis(), model_rotation_angle).to_homogeneous();
+        model_transform = model_rotation;
         renderer.storage_mut().set_mat4s(vec![
             camera.view_projection,
+            model_transform,
         ]);
 
         renderer.draw_mesh(mesh, &shader);
@@ -151,3 +166,4 @@ fn main() {
         now = Instant::now();
     }
 }
+

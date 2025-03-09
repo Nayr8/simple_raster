@@ -12,15 +12,15 @@ pub struct BasicShader;
 impl Shader for BasicShader {
     fn vertex(&self, input_vars: VertexShaderInputVariables) -> VertexShaderOutputVariables {
         let view_projection = input_vars.storage.get_mat4(0);
+        let transform = input_vars.storage.get_mat4(1);
 
-        let position = view_projection * input_vars.position;
+        let position = view_projection * transform * input_vars.position;
 
         VertexShaderOutputVariables {
             position,
             vec2: vec![input_vars.texture_coords.xy()],
             ..Default::default()
         }
-
     }
 
     fn fragment(&self, input_vars: FragmentShaderInputVariables) -> Option<Vector3<f32>> {
