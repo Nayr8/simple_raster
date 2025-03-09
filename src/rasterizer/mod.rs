@@ -1,14 +1,14 @@
 use nalgebra::{RealField, Vector2, Vector3, Vector4};
 use crate::mesh::{Face, Mesh};
-use crate::renderer::bounding_box::BoundingBox;
-use crate::renderer::storage::Storage;
+use crate::rasterizer::bounding_box::BoundingBox;
+use crate::rasterizer::storage::Storage;
 use crate::shader::{FragmentShaderInputVariables, Shader, VertexShaderInputVariables, VertexShaderOutputVariables};
 
 pub mod texture2d;
 mod bounding_box;
 pub mod storage;
 
-pub struct Renderer<'a> {
+pub struct Rasterizer<'a> {
     buffer: &'a mut [u32],
     width: usize,
     height: usize,
@@ -16,7 +16,7 @@ pub struct Renderer<'a> {
     storage: Storage,
 }
 
-impl<'a> Renderer<'a> {
+impl<'a> Rasterizer<'a> {
     pub fn new(buffer: &'a mut [u32], width: usize, height: usize) -> Self {
         Self {
             z_buffer: vec![f32::min_value().unwrap(); width * height],
@@ -58,7 +58,8 @@ impl<'a> Renderer<'a> {
     }
 
     fn draw_triangle(&mut self, mut vertex_positions: [Vector4<f32>; 3], vertex_outputs: &[VertexShaderOutputVariables; 3], shader: &impl Shader) {
-        if Self::triangle_outside_screen(&vertex_positions) { return }
+        if Self::triangle_outside_screen(&vertex_positions)
+            || Self::is_backface(&vertex_positions) { return }
 
         self.convert_vertices_to_screen_space(&mut vertex_positions);
 
@@ -92,6 +93,21 @@ impl<'a> Renderer<'a> {
                 v.w
             );
         }
+    }
+
+    fn is_backface(vertex_positions: &[Vector4<f32>; 3]) -> bool {
+        let edge1 = vertex_positions[1] - vertex_positions[0];
+        let edge2 = vertex_positions[2] - vertex_positions[0];
+
+        let normal = Vector3::new(
+            edge1.y * edge2.z - edge1.z * edge2.y,
+            edge1.z * edge2.x - edge1.x * edge2.z,
+            edge1.x * edge2.y - edge1.y * edge2.x,
+        );
+
+        let view_direction = Vector3::new(0.0, 0.0, 1.0);
+
+        normal.dot(&view_direction) <= 0.0
     }
 
     #[inline(always)]

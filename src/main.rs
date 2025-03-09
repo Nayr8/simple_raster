@@ -1,5 +1,5 @@
 use crate::mesh::ObjLoader;
-use crate::renderer::Renderer;
+use crate::rasterizer::Rasterizer;
 use crate::shader::BasicShader;
 use minifb::Key;
 use nalgebra::{Matrix4, Point3, Rotation3, Translation3, Vector3};
@@ -10,7 +10,7 @@ use std::time::Instant;
 
 mod mesh;
 mod shader;
-mod renderer;
+mod rasterizer;
 
 fn load_texture(path: impl AsRef<Path>) -> Option<image::RgbaImage> {
     let img = image::open(path).ok()?;
@@ -79,7 +79,7 @@ fn main() {
     let texture = load_texture("african_head_diffuse.tga").unwrap();
 
     let mut buffer = vec![0; WIDTH * HEIGHT];
-    let mut renderer = Renderer::new(&mut buffer, WIDTH, HEIGHT);
+    let mut renderer = Rasterizer::new(&mut buffer, WIDTH, HEIGHT);
 
     renderer.storage_mut().set_texture2ds(vec![texture.into()]);
 
