@@ -89,7 +89,7 @@ fn main() {
     let far = 100.0;
 
     let mut camera = PerspectiveCamera::new(
-        Point3::new(0.0, 0.0, 0.0),
+        Point3::new(0.0, 0.0, 1.0),
         Vector3::new(0.0, 0.0, 0.0),
         fovy,
         aspect_ratio,
@@ -110,11 +110,35 @@ fn main() {
     window.set_target_fps(100);
     let mut now = Instant::now();
     while window.is_open() && !window.is_key_down(Key::Escape) {
-        //camera.rotation.y += 0.005;
-        //if (camera.rotation.y > 2.0 * std::f32::consts::PI) {
-        //    camera.rotation.y -= 2.0 * std::f32::consts::PI;
-        //}
-        camera.position.z += 0.005;
+        let movement_speed = 0.05;
+        let rotation_speed = 0.02;
+
+        let yaw = camera.rotation.y;
+        if window.is_key_down(Key::W) {
+            camera.position.x += movement_speed * yaw.sin();
+            camera.position.z -= movement_speed * yaw.cos();
+        }
+        if window.is_key_down(Key::S) {
+            camera.position.x -= movement_speed * yaw.sin();
+            camera.position.z += movement_speed * yaw.cos();
+        }
+        if window.is_key_down(Key::A) {
+            camera.position.x -= movement_speed * yaw.cos();
+            camera.position.z -= movement_speed * yaw.sin();
+        }
+        if window.is_key_down(Key::D) {
+            camera.position.x += movement_speed * yaw.cos();
+            camera.position.z += movement_speed * yaw.sin();
+        }
+
+        if window.is_key_down(Key::Left) {
+            camera.rotation.y -= rotation_speed;
+        }
+        if window.is_key_down(Key::Right) {
+            camera.rotation.y += rotation_speed;
+        }
+
+
         camera.update_view();
         renderer.storage_mut().set_mat4s(vec![
             camera.view_projection,

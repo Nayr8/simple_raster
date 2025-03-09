@@ -28,8 +28,8 @@ impl<'a> Rasterizer<'a> {
     }
 
     pub fn clear(&mut self) {
-        self.buffer.iter_mut().for_each(|p| *p = 0);
-        self.z_buffer.iter_mut().for_each(|p| *p = f32::min_value().unwrap());
+        self.buffer.fill(0);
+        self.z_buffer.fill(f32::MIN);
     }
 
     fn calculate_barycentric_coordinates(vertex_positions: [Vector4<f32>; 3], pixel: Vector2<f32>) -> Vector3<f32> {
@@ -128,19 +128,14 @@ impl<'a> Rasterizer<'a> {
         if frag_depth < 0.0 || frag_depth > 1.0 { return }
 
         let index = x + y * self.width;
-        if self.z_buffer[index] < frag_depth {
-            self.z_buffer[index] = frag_depth;
+        if self.z_buffer[index] >= frag_depth { return }
+        self.z_buffer[index] = frag_depth;
 
-            match self.run_fragment_shader(bary_coords, vertex_outputs, shader) {
-                Some(colour) => {
-                    let colour_u32 = colour.map(|c| (c * 255.0) as u8 as u32);
-                    let pixel_value = (colour_u32.x << 16) | (colour_u32.y << 8) | colour_u32.z;
+        let Some(colour) = self.run_fragment_shader(bary_coords, vertex_outputs, shader) else { return };
+        let colour_u32 = colour.map(|c| (c * 255.0) as u8 as u32);
+        let pixel_value = (colour_u32.x << 16) | (colour_u32.y << 8) | colour_u32.z;
 
-                    self.set_pixel(x, y, pixel_value);
-                },
-                None => {} // Discard
-            }
-        }
+        self.set_pixel(x, y, pixel_value);
     }
 
     pub fn draw_mesh(&mut self, mesh: &Mesh, shader: &impl Shader) {
