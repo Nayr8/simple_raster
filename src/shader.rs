@@ -1,4 +1,4 @@
-use crate::renderer::Storage;
+use crate::renderer::storage::Storage;
 use nalgebra::{Vector2, Vector3, Vector4};
 
 pub trait Shader : Send + Sync {

@@ -1,53 +1,16 @@
-use std::fs::File;
-use std::io::BufReader;
-use minifb::Key;
-use std::path::Path;
-use std::time::Instant;
-use nalgebra::{Matrix4, Perspective3, Point3, Projective3, Rotation3, Translation3, Vector3};
 use crate::mesh::ObjLoader;
 use crate::renderer::Renderer;
 use crate::shader::BasicShader;
+use minifb::Key;
+use nalgebra::{Matrix4, Point3, Rotation3, Translation3, Vector3};
+use std::fs::File;
+use std::io::BufReader;
+use std::path::Path;
+use std::time::Instant;
 
 mod mesh;
 mod shader;
 mod renderer;
-
-struct Image {
-    width: usize,
-    height: usize,
-    buffer: Box<[u32]>,
-}
-
-impl Image {
-    fn new(width: usize, height: usize) -> Self {
-        Self {
-            width,
-            height,
-            buffer: vec![0; width * height].into_boxed_slice(),
-        }
-    }
-
-    pub fn clear(&mut self) {
-        self.buffer.iter_mut().for_each(|p| *p = 0);
-    }
-
-
-    fn run(&mut self) {
-        let mut window = minifb::Window::new("Simple Raster", self.width, self.height, minifb::WindowOptions::default()).unwrap();
-
-        while window.is_open() && !window.is_key_down(Key::Escape) {
-            window.update_with_buffer(&self.buffer, self.width, self.height).unwrap();
-        }
-    }
-
-    fn set_pixel(&mut self, x: usize, y: usize, colour: u32) {
-        if (x >= self.width) || (y >= self.height) {
-            return;
-        }
-        let index = y * self.width + x;
-        self.buffer[index] = colour;
-    }
-}
 
 fn load_texture(path: impl AsRef<Path>) -> Option<image::RgbaImage> {
     let img = image::open(path).ok()?;
@@ -108,17 +71,15 @@ fn main() {
     const WIDTH: usize = 1280;
     const HEIGHT: usize = 720;
 
-    let mut image = Image::new(WIDTH, HEIGHT);
-
-
     let mut mesh_loader = ObjLoader::new();
     let file = File::open("african_head.obj").unwrap();
-    let mut meshes = mesh_loader.parse(BufReader::new(file));
+    let meshes = mesh_loader.parse(BufReader::new(file));
     let mesh = &meshes[0];
 
     let texture = load_texture("african_head_diffuse.tga").unwrap();
 
-    let mut renderer = Renderer::new(&mut image);
+    let mut buffer = vec![0; WIDTH * HEIGHT];
+    let mut renderer = Renderer::new(&mut buffer, WIDTH, HEIGHT);
 
     renderer.storage_mut().set_texture2ds(vec![texture.into()]);
 
@@ -145,7 +106,7 @@ fn main() {
     renderer.draw_mesh(mesh, &shader);
 
 
-    let mut window = minifb::Window::new("Simple Raster", renderer.image.width, renderer.image.height, minifb::WindowOptions::default()).unwrap();
+    let mut window = minifb::Window::new("Simple Raster", WIDTH, HEIGHT, minifb::WindowOptions::default()).unwrap();
     window.set_target_fps(100);
     let mut now = Instant::now();
     while window.is_open() && !window.is_key_down(Key::Escape) {
@@ -160,10 +121,9 @@ fn main() {
         ]);
 
         renderer.draw_mesh(mesh, &shader);
-        window.update_with_buffer(&renderer.image.buffer, renderer.image.width, renderer.image.height).unwrap();
+        window.update_with_buffer(renderer.buffer(), WIDTH, HEIGHT).unwrap();
         renderer.clear();
         println!("{:?} fps", 1.0 / now.elapsed().as_secs_f64());
         now = Instant::now();
     }
-    //image.run();
 }

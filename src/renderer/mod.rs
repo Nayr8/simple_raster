@@ -1,26 +1,34 @@
-use image::RgbaImage;
-use nalgebra::{Matrix4, RealField, Vector2, Vector3, Vector4};
-use crate::Image;
+use nalgebra::{RealField, Vector2, Vector3, Vector4};
 use crate::mesh::{Face, Mesh};
+use crate::renderer::bounding_box::BoundingBox;
+use crate::renderer::storage::Storage;
 use crate::shader::{FragmentShaderInputVariables, Shader, VertexShaderInputVariables, VertexShaderOutputVariables};
 
+pub mod texture2d;
+mod bounding_box;
+pub mod storage;
+
 pub struct Renderer<'a> {
-    pub(crate) image: &'a mut Image,
+    buffer: &'a mut [u32],
+    width: usize,
+    height: usize,
     z_buffer: Vec<f32>,
     storage: Storage,
 }
 
 impl<'a> Renderer<'a> {
-    pub fn new(image: &'a mut Image) -> Self {
+    pub fn new(buffer: &'a mut [u32], width: usize, height: usize) -> Self {
         Self {
-            z_buffer: vec![f32::min_value().unwrap(); image.width * image.height],
-            image,
+            z_buffer: vec![f32::min_value().unwrap(); width * height],
+            buffer,
+            width,
             storage: Storage::default(),
+            height,
         }
     }
 
     pub fn clear(&mut self) {
-        self.image.clear();
+        self.buffer.iter_mut().for_each(|p| *p = 0);
         self.z_buffer.iter_mut().for_each(|p| *p = f32::min_value().unwrap());
     }
 
@@ -49,31 +57,40 @@ impl<'a> Renderer<'a> {
         )
     }
 
-    pub fn draw_triangle(&mut self, mut vertex_positions: [Vector4<f32>; 3], vertex_outputs: &[VertexShaderOutputVariables; 3], shader: &impl Shader) {
-        for vertex in &vertex_positions {
+    fn draw_triangle(&mut self, mut vertex_positions: [Vector4<f32>; 3], vertex_outputs: &[VertexShaderOutputVariables; 3], shader: &impl Shader) {
+        if Self::triangle_outside_screen(&vertex_positions) { return }
+
+        self.convert_vertices_to_screen_space(&mut vertex_positions);
+
+        let bounding_box = BoundingBox::calculate(vertex_positions, self.width, self.height);
+
+        for x in bounding_box.x_iter() {
+            for y in bounding_box.y_iter() {
+                self.draw_pixel(vertex_positions, x, y, &vertex_outputs, shader);
+            }
+        }
+    }
+
+    fn triangle_outside_screen(vertex_positions: &[Vector4<f32>; 3]) -> bool {
+        for vertex in vertex_positions {
             if (vertex.x < -vertex.w || vertex.x > vertex.w) &&
                 (vertex.y < -vertex.w || vertex.y > vertex.w) &&
                 (vertex.z < -vertex.w || vertex.z > vertex.w) {
-                return;
+                return true;
             }
         }
+        false
+    }
 
+    fn convert_vertices_to_screen_space(&self, vertex_positions: &mut [Vector4<f32>; 3]) {
         for i in 0..3 {
             let v = vertex_positions[i];
             vertex_positions[i] = Vector4::new(
-                (v.x + 1.0) * 0.5 * self.image.width as f32,
-                (1.0 - v.y) * 0.5 * self.image.height as f32,
+                (v.x + 1.0) * 0.5 * self.width as f32,
+                (1.0 - v.y) * 0.5 * self.height as f32,
                 v.z,
                 v.w
             );
-        }
-
-        let bounding_box = BoundingBox::calculate2(vertex_positions, self.image.width, self.image.height);
-
-        for x in bounding_box.min.x..=bounding_box.max.x {
-            for y in bounding_box.min.y..=bounding_box.max.y {
-                self.draw_pixel(vertex_positions, x, y, &vertex_outputs, shader);
-            }
         }
     }
 
@@ -94,7 +111,7 @@ impl<'a> Renderer<'a> {
 
         if frag_depth < 0.0 || frag_depth > 1.0 { return }
 
-        let index = x + y * self.image.width;
+        let index = x + y * self.width;
         if self.z_buffer[index] < frag_depth {
             self.z_buffer[index] = frag_depth;
 
@@ -103,7 +120,7 @@ impl<'a> Renderer<'a> {
                     let colour_u32 = colour.map(|c| (c * 255.0) as u8 as u32);
                     let pixel_value = (colour_u32.x << 16) | (colour_u32.y << 8) | colour_u32.z;
 
-                    self.image.set_pixel(x, y, pixel_value);
+                    self.set_pixel(x, y, pixel_value);
                 },
                 None => {} // Discard
             }
@@ -120,7 +137,7 @@ impl<'a> Renderer<'a> {
                     vertex_output.position.y / vertex_output.position.w,
                     vertex_output.position.z / vertex_output.position.w,
                     vertex_output.position.w,
-                );//vertex_output.position.xyz() / vertex_output.position.w;
+                );
 
             }
 
@@ -160,110 +177,18 @@ impl<'a> Renderer<'a> {
     pub fn storage_mut(&mut self) -> &mut Storage {
         &mut self.storage
     }
-}
 
-
-#[derive(Default)]
-pub struct Storage {
-    textures2d: Vec<Texture2D>,
-    f32s: Vec<f32>,
-    mat4s: Vec<nalgebra::Matrix4<f32>>,
-}
-
-impl Storage {
-    pub fn set_texture2ds(&mut self, textures: Vec<Texture2D>) {
-        self.textures2d = textures;
-    }
-
-    pub fn get_texture2d(&self, index: usize) -> &Texture2D {
-        &self.textures2d[index]
-    }
-    pub fn set_f32s(&mut self, f32s: Vec<f32>) {
-        self.f32s = f32s;
-    }
-
-    pub fn get_f32(&self, index: usize) -> f32 {
-        self.f32s[index]
-    }
-
-    pub fn set_mat4s(&mut self, mat4s: Vec<Matrix4<f32>>) {
-        self.mat4s = mat4s;
-    }
-
-    pub fn get_mat4(&self, index: usize) -> &Matrix4<f32> {
-        &self.mat4s[index]
-    }
-}
-
-pub struct Texture2D {
-    pixels: Vec<Vector4<u8>>,
-    width: usize,
-    height: usize,
-}
-
-impl Texture2D {
-    pub fn sample(&self, u: f32, v: f32) -> Vector4<f32> {
-        let u = (u * (self.width - 1) as f32) as usize;
-        let v = self.height - (v * (self.height - 1) as f32) as usize - 1;
-
-        let u = u.min(self.width - 1);
-        let v = v.min(self.height - 1);
-
-        let u8_pixel = self.pixels[v * self.width + u];
-        Vector4::new(u8_pixel.x as f32, u8_pixel.y as f32, u8_pixel.z as f32, u8_pixel.w as f32) / 255.0
-    }
-}
-
-impl From<RgbaImage> for Texture2D {
-    fn from(value: RgbaImage) -> Self {
-        Self {
-            pixels: value.pixels().map(|p| Vector4::new(p[0], p[1], p[2], p[3])).collect(),
-            width: value.width() as usize,
-            height: value.height() as usize,
+    fn set_pixel(&mut self, x: usize, y: usize, colour: u32) {
+        if (x >= self.width) || (y >= self.height) {
+            return;
         }
+        let index = y * self.width + x;
+        self.buffer[index] = colour;
+    }
+
+    pub fn buffer(&self) -> &[u32] {
+        self.buffer
     }
 }
 
-struct BoundingBox {
-    min: Vector2<usize>,
-    max: Vector2<usize>,
-}
 
-impl BoundingBox {
-    fn calculate(face: &Face, width: usize, height: usize) -> Self {
-        let clamp = Vector2::new(width as f32 - 1.0, height as f32 - 1.0);
-        let mut bounding_box_min = clamp;
-        let mut bounding_box_max = Vector2::new(0.0_f32, 0.0);
-
-        for vertex in &face.vertices {
-            bounding_box_min.x = bounding_box_min.x.min(vertex.position.x);
-            bounding_box_min.y = bounding_box_min.y.min(vertex.position.y);
-
-            bounding_box_max.x = bounding_box_max.x.max(vertex.position.x).min(clamp.x);
-            bounding_box_max.y = bounding_box_max.y.max(vertex.position.y).min(clamp.y);
-        }
-
-        Self {
-            min: Vector2::new(bounding_box_min.x as usize, bounding_box_min.y as usize),
-            max: Vector2::new(bounding_box_max.x as usize, bounding_box_max.y as usize),
-        }
-    }
-    fn calculate2(vertex_positions: [Vector4<f32>; 3], width: usize, height: usize) -> Self {
-        let clamp = Vector2::new(width as f32 - 1.0, height as f32 - 1.0);
-        let mut bounding_box_min = clamp;
-        let mut bounding_box_max = Vector2::new(0.0_f32, 0.0);
-
-        for vertex in &vertex_positions {
-            bounding_box_min.x = bounding_box_min.x.min(vertex.x);
-            bounding_box_min.y = bounding_box_min.y.min(vertex.y);
-
-            bounding_box_max.x = bounding_box_max.x.max(vertex.x).min(clamp.x);
-            bounding_box_max.y = bounding_box_max.y.max(vertex.y).min(clamp.y);
-        }
-
-        Self {
-            min: Vector2::new(bounding_box_min.x as usize, bounding_box_min.y as usize),
-            max: Vector2::new(bounding_box_max.x as usize, bounding_box_max.y as usize),
-        }
-    }
-}
