@@ -7,9 +7,26 @@ pub struct Mesh {
     pub faces: Vec<Face>,
 }
 
+impl Mesh {
+    pub fn new(name: Option<String>, faces: Vec<Face>) -> Self {
+        Self {
+            name,
+            faces,
+        }
+    }
+}
+
 #[derive(Default, Copy, Clone)]
 pub struct Face {
     pub vertices: [Vertex; 3],
+}
+
+impl Face {
+    pub fn new(vertices: [Vertex; 3]) -> Self {
+        Self {
+            vertices,
+        }
+    }
 }
 
 #[derive(Default, Copy, Clone)]
@@ -19,6 +36,23 @@ pub struct Vertex {
     pub normals: Vector3<f32>,
 }
 
+impl Vertex {
+    pub fn from_pos_tex(position: Vector4<f32>, texture_coords: Vector3<f32>) -> Self {
+        Self {
+            position,
+            texture_coords,
+            normals: Vector3::new(0.0, 0.0, 1.0),
+        }
+    }
+
+    pub fn from_pos(position: Vector4<f32>) -> Self {
+        Self {
+            position,
+            texture_coords: Vector3::new(0.0, 0.0, 1.0),
+            normals: Vector3::new(0.0, 0.0, 1.0),
+        }
+    }
+}
 
 
 

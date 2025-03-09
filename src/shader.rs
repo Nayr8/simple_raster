@@ -3,7 +3,7 @@ use nalgebra::{Vector2, Vector3, Vector4};
 
 pub trait Shader : Send + Sync {
     fn vertex(&self, input_vars: VertexShaderInputVariables) -> VertexShaderOutputVariables;
-    fn fragment(&self, input_vars: FragmentShaderInputVariables) -> Option<Vector3<f32>>;
+    fn fragment(&self, input_vars: FragmentShaderInputVariables) -> Option<Vector4<f32>>;
 }
 
 
@@ -23,14 +23,13 @@ impl Shader for BasicShader {
         }
     }
 
-    fn fragment(&self, input_vars: FragmentShaderInputVariables) -> Option<Vector3<f32>> {
+    fn fragment(&self, input_vars: FragmentShaderInputVariables) -> Option<Vector4<f32>> {
         let uvs = input_vars.get_input_vec2(0);
 
         let texture = input_vars.storage.get_texture2d(0);
         let base_colour = texture.sample(uvs.x, uvs.y);
 
-
-        Some(base_colour.xyz())
+        Some(base_colour)
     }
 }
 

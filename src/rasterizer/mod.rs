@@ -13,6 +13,7 @@ pub struct Rasterizer<'a> {
     width: usize,
     height: usize,
     z_buffer: Vec<f32>,
+    alpha_buffer: Vec<f32>,
     storage: Storage,
 }
 
@@ -20,6 +21,7 @@ impl<'a> Rasterizer<'a> {
     pub fn new(buffer: &'a mut [u32], width: usize, height: usize) -> Self {
         Self {
             z_buffer: vec![f32::min_value().unwrap(); width * height],
+            alpha_buffer: vec![0.0; width * height],
             buffer,
             width,
             storage: Storage::default(),
@@ -29,6 +31,7 @@ impl<'a> Rasterizer<'a> {
 
     pub fn clear(&mut self) {
         self.buffer.fill(0);
+        self.alpha_buffer.fill(0.0);
         self.z_buffer.fill(f32::MIN);
     }
 
@@ -129,13 +132,43 @@ impl<'a> Rasterizer<'a> {
 
         let index = x + y * self.width;
         if self.z_buffer[index] >= frag_depth { return }
-        self.z_buffer[index] = frag_depth;
 
         let Some(colour) = self.run_fragment_shader(bary_coords, vertex_outputs, shader) else { return };
-        let colour_u32 = colour.map(|c| (c * 255.0) as u8 as u32);
-        let pixel_value = (colour_u32.x << 16) | (colour_u32.y << 8) | colour_u32.z;
 
-        self.set_pixel(x, y, pixel_value);
+        let fragment_alpha = colour.w;
+
+        let base_colour = Self::convert_u32_to_colour(self.get_pixel(x, y));
+        let accumulated_alpha = self.alpha_buffer[index];
+
+        let alpha_contribution = fragment_alpha - accumulated_alpha;
+        let blended_colour = {
+            let foreground = colour.xyz() * alpha_contribution;
+            let background = base_colour.xyz() * (1.0 - alpha_contribution);
+            foreground + background
+        };
+
+        let final_alpha = fragment_alpha + accumulated_alpha * (1.0 - fragment_alpha);
+        self.alpha_buffer[index] = final_alpha;
+
+        self.set_pixel(x, y, Self::convert_colour_to_u32(blended_colour));
+
+        if fragment_alpha == 1.0 {
+            self.z_buffer[index] = frag_depth;
+        }
+    }
+
+    fn convert_colour_to_u32(colour: Vector3<f32>) -> u32 {
+        let r = (colour.x * 255.0) as u8 as u32;
+        let g = (colour.y * 255.0) as u8 as u32;
+        let b = (colour.z * 255.0) as u8 as u32;
+        (r << 16) | (g << 8) | b
+    }
+
+    fn convert_u32_to_colour(colour: u32) -> Vector3<f32> {
+        let r = (colour >> 16 & 0xFF) as f32 / 255.0;
+        let g = (colour >> 8 & 0xFF) as f32 / 255.0;
+        let b = (colour & 0xFF) as f32 / 255.0;
+        Vector3::new(r, g, b)
     }
 
     pub fn draw_mesh(&mut self, mesh: &Mesh, shader: &impl Shader) {
@@ -180,7 +213,7 @@ impl<'a> Rasterizer<'a> {
         }
     }
 
-    fn run_fragment_shader(&self, bary_coords: Vector3<f32>, vertex_outputs: &[VertexShaderOutputVariables; 3], shader: &impl Shader) -> Option<Vector3<f32>> {
+    fn run_fragment_shader(&self, bary_coords: Vector3<f32>, vertex_outputs: &[VertexShaderOutputVariables; 3], shader: &impl Shader) -> Option<Vector4<f32>> {
         let input_vars = FragmentShaderInputVariables::new(vertex_outputs, bary_coords, &self.storage);
         shader.fragment(input_vars)
     }
@@ -195,6 +228,14 @@ impl<'a> Rasterizer<'a> {
         }
         let index = y * self.width + x;
         self.buffer[index] = colour;
+    }
+
+    fn get_pixel(&self, x: usize, y: usize) -> u32 {
+        if (x >= self.width) || (y >= self.height) {
+            return 0;
+        }
+        let index = y * self.width + x;
+        self.buffer[index]
     }
 
     pub fn buffer(&self) -> &[u32] {

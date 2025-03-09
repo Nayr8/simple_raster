@@ -1,8 +1,8 @@
-use crate::mesh::ObjLoader;
+use crate::mesh::{Face, Mesh, ObjLoader, Vertex};
 use crate::rasterizer::Rasterizer;
 use crate::shader::BasicShader;
 use minifb::Key;
-use nalgebra::{Matrix4, Point3, Rotation3, Translation3, Vector3};
+use nalgebra::{Matrix4, Point3, Rotation3, Translation3, Vector3, Vector4};
 use std::fs::File;
 use std::io::BufReader;
 use std::path::Path;
@@ -76,12 +76,25 @@ fn main() {
     let meshes = mesh_loader.parse(BufReader::new(file));
     let mesh = &meshes[0];
 
+    let mesh2 = Mesh::new(None, vec![
+        Face::new([
+            Vertex::from_pos_tex(Vector4::new(0.0, 0.0, 0.0, 1.0), Vector3::new(0.0, 0.0, 0.0)),  // Bottom-left, tex(0.0, 0.0)
+            Vertex::from_pos_tex(Vector4::new(1.0, 0.0, 0.0, 1.0), Vector3::new(1.0, 0.0, 0.0)),  // Bottom-right, tex(1.0, 0.0)
+            Vertex::from_pos_tex(Vector4::new(1.0, 1.0, 0.0, 1.0), Vector3::new(1.0, 1.0, 0.0)),  // Top-right, tex(1.0, 1.0)
+        ]),
+        Face::new([
+            Vertex::from_pos_tex(Vector4::new(0.0, 0.0, 0.0, 1.0), Vector3::new(0.0, 0.0, 0.0)),  // Bottom-left, tex(0.0, 0.0)
+            Vertex::from_pos_tex(Vector4::new(1.0, 1.0, 0.0, 1.0), Vector3::new(1.0, 1.0, 0.0)),  // Top-right, tex(1.0, 1.0)
+            Vertex::from_pos_tex(Vector4::new(0.0, 1.0, 0.0, 1.0), Vector3::new(0.0, 1.0, 0.0)),  // Top-left, tex(0.0, 1.0)
+        ]),
+    ]);
+
     let texture = load_texture("african_head_diffuse.tga").unwrap();
+    let texture2 = load_texture("blending_transparent_window.png").unwrap();
 
     let mut buffer = vec![0; WIDTH * HEIGHT];
     let mut renderer = Rasterizer::new(&mut buffer, WIDTH, HEIGHT);
 
-    renderer.storage_mut().set_texture2ds(vec![texture.into()]);
 
     let fovy = 60.0 * (std::f32::consts::PI / 180.0); // 60 degrees fov y
     let aspect_ratio = WIDTH as f32 / HEIGHT as f32;
@@ -89,7 +102,7 @@ fn main() {
     let far = 100.0;
 
     let mut camera = PerspectiveCamera::new(
-        Point3::new(0.0, 0.0, 1.0),
+        Point3::new(0.0, 0.0, 4.0),
         Vector3::new(0.0, 0.0, 0.0),
         fovy,
         aspect_ratio,
@@ -97,19 +110,29 @@ fn main() {
         far,
     );
 
-    let mut model_transform = Matrix4::identity();
     let mut model_rotation_angle = 0.0;
     let model_rotation_speed = 0.01;
 
+    let shader = BasicShader;
+
+    let window_transform = Translation3::from(Vector3::new(0.0, 0.0, 1.0)).to_homogeneous();
+    renderer.storage_mut().set_mat4s(vec![
+        camera.view_projection,
+        window_transform,
+    ]);
+    renderer.storage_mut().set_texture2ds(vec![texture2.clone().into()]);
+    renderer.draw_mesh(&mesh2, &shader);
+
+    let mut model_transform = Matrix4::identity();
     renderer.storage_mut().set_mat4s(vec![
         camera.view_projection,
         model_transform,
     ]);
-
-
-    let shader = BasicShader;
-
+    renderer.storage_mut().set_texture2ds(vec![texture.clone().into()]);
+    let now = Instant::now();
     renderer.draw_mesh(mesh, &shader);
+
+    println!("{:?} fps", 1.0 / now.elapsed().as_secs_f64());
 
     let window_options = minifb::WindowOptions {
         resize: true,
@@ -118,9 +141,12 @@ fn main() {
     };
 
     let mut window = minifb::Window::new("Simple Raster", WIDTH, HEIGHT, window_options).unwrap();
+    window.update_with_buffer(renderer.buffer(), WIDTH, HEIGHT).unwrap();
     window.set_target_fps(100);
     let mut now = Instant::now();
     while window.is_open() && !window.is_key_down(Key::Escape) {
+        //continue;
+
         let movement_speed = 0.05;
         let rotation_speed = 0.02;
 
@@ -151,15 +177,24 @@ fn main() {
 
         camera.update_view();
 
-        model_rotation_angle += model_rotation_speed;
+        //model_rotation_angle += model_rotation_speed;
         let model_rotation = Rotation3::from_axis_angle(&Vector3::y_axis(), model_rotation_angle).to_homogeneous();
         model_transform = model_rotation;
+
+        renderer.storage_mut().set_mat4s(vec![
+            camera.view_projection,
+            window_transform,
+        ]);
+        renderer.storage_mut().set_texture2ds(vec![texture2.clone().into()]);
+        renderer.draw_mesh(&mesh2, &shader);
+
         renderer.storage_mut().set_mat4s(vec![
             camera.view_projection,
             model_transform,
         ]);
-
+        renderer.storage_mut().set_texture2ds(vec![texture.clone().into()]);
         renderer.draw_mesh(mesh, &shader);
+
         window.update_with_buffer(renderer.buffer(), WIDTH, HEIGHT).unwrap();
         renderer.clear();
         println!("{:?} fps", 1.0 / now.elapsed().as_secs_f64());
