@@ -20,7 +20,7 @@ pub struct Rasterizer<'a> {
 impl<'a> Rasterizer<'a> {
     pub fn new(buffer: &'a mut [u32], width: usize, height: usize) -> Self {
         Self {
-            z_buffer: vec![f32::min_value().unwrap(); width * height],
+            z_buffer: vec![f32::MAX; width * height],
             alpha_buffer: vec![0.0; width * height],
             buffer,
             width,
@@ -32,7 +32,7 @@ impl<'a> Rasterizer<'a> {
     pub fn clear(&mut self) {
         self.buffer.fill(0);
         self.alpha_buffer.fill(0.0);
-        self.z_buffer.fill(f32::MIN);
+        self.z_buffer.fill(f32::MAX);
     }
 
     fn calculate_barycentric_coordinates(vertex_positions: [Vector4<f32>; 3], pixel: Vector2<f32>) -> Vector3<f32> {
@@ -110,7 +110,7 @@ impl<'a> Rasterizer<'a> {
 
         let view_direction = Vector3::new(0.0, 0.0, 1.0);
 
-        normal.dot(&view_direction) <= 0.0
+        normal.dot(&view_direction) <= 0.0;false
     }
 
     fn get_frag_depth(vertex_positions: [Vector4<f32>; 3], bary_coords: Vector3<f32>) -> f32 {
@@ -125,22 +125,8 @@ impl<'a> Rasterizer<'a> {
         z / w
     }
 
-    #[inline(always)]
-    fn draw_pixel(&mut self, vertex_positions: [Vector4<f32>; 3], x: usize, y: usize, vertex_outputs: &[VertexShaderOutputVariables; 3], shader: &impl Shader) {
-        let bary_coords = Self::calculate_barycentric_coordinates(vertex_positions, Vector2::new(x as f32, y as f32));
-        if (bary_coords.x < 0.0) || (bary_coords.y < 0.0) || (bary_coords.z < 0.0) { return; }
-
-        let frag_depth = Self::get_frag_depth(vertex_positions, bary_coords);
-
-        if frag_depth < 0.0 || frag_depth > 1.0 { return }
-
-        let index = x + y * self.width;
-        if self.z_buffer[index] >= frag_depth { return }
-
-        let Some(colour) = self.run_fragment_shader(bary_coords, vertex_outputs, shader) else { return };
-
+    fn blend_colours(&self, x: usize, y: usize, index: usize, colour: Vector4<f32>) -> Vector4<f32> {
         let fragment_alpha = colour.w;
-
         let base_colour = Self::convert_u32_to_colour(self.get_pixel(x, y));
         let accumulated_alpha = self.alpha_buffer[index];
 
@@ -150,13 +136,30 @@ impl<'a> Rasterizer<'a> {
             let background = base_colour.xyz() * (1.0 - alpha_contribution);
             foreground + background
         };
-
         let final_alpha = fragment_alpha + accumulated_alpha * (1.0 - fragment_alpha);
-        self.alpha_buffer[index] = final_alpha;
 
-        self.set_pixel(x, y, Self::convert_colour_to_u32(blended_colour));
+        blended_colour.push(final_alpha)
+    }
 
-        if fragment_alpha == 1.0 {
+    #[inline(always)]
+    fn draw_pixel(&mut self, vertex_positions: [Vector4<f32>; 3], x: usize, y: usize, vertex_outputs: &[VertexShaderOutputVariables; 3], shader: &impl Shader) {
+        let bary_coords = Self::calculate_barycentric_coordinates(vertex_positions, Vector2::new(x as f32, y as f32));
+        if (bary_coords.x < 0.0) || (bary_coords.y < 0.0) || (bary_coords.z < 0.0) { return; }
+
+        let frag_depth = Self::get_frag_depth(vertex_positions, bary_coords);
+        if frag_depth < 0.0 || frag_depth > 1.0 { return }
+
+        let index = x + y * self.width;
+        if frag_depth > self.z_buffer[index] { return }
+
+        let Some(colour) = self.run_fragment_shader(bary_coords, vertex_outputs, shader) else { return };
+
+        let colour = self.blend_colours(x, y, index, colour);
+        self.alpha_buffer[index] = colour.w;
+
+        self.set_pixel(x, y, Self::convert_colour_to_u32(colour.xyz()));
+
+        if colour.w > 1.0 {
             self.z_buffer[index] = frag_depth;
         }
     }
