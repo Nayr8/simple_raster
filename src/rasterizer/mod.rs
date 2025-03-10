@@ -113,20 +113,24 @@ impl<'a> Rasterizer<'a> {
         normal.dot(&view_direction) <= 0.0
     }
 
-    #[inline(always)]
-    fn draw_pixel(&mut self, vertex_positions: [Vector4<f32>; 3], x: usize, y: usize, vertex_outputs: &[VertexShaderOutputVariables; 3], shader: &impl Shader) {
-        let bary_coords = Self::calculate_barycentric_coordinates(vertex_positions, Vector2::new(x as f32, y as f32));
-        if (bary_coords.x < 0.0) || (bary_coords.y < 0.0) || (bary_coords.z < 0.0) { return; }
-
+    fn get_frag_depth(vertex_positions: [Vector4<f32>; 3], bary_coords: Vector3<f32>) -> f32 {
         let z =
             vertex_positions[0].z * bary_coords[0] +
             vertex_positions[1].z * bary_coords[1] +
             vertex_positions[2].z * bary_coords[2];
         let w =
             vertex_positions[0].w * bary_coords[0] +
-                vertex_positions[1].w * bary_coords[1] +
-                vertex_positions[2].w * bary_coords[2];
-        let frag_depth = z / w;
+            vertex_positions[1].w * bary_coords[1] +
+            vertex_positions[2].w * bary_coords[2];
+        z / w
+    }
+
+    #[inline(always)]
+    fn draw_pixel(&mut self, vertex_positions: [Vector4<f32>; 3], x: usize, y: usize, vertex_outputs: &[VertexShaderOutputVariables; 3], shader: &impl Shader) {
+        let bary_coords = Self::calculate_barycentric_coordinates(vertex_positions, Vector2::new(x as f32, y as f32));
+        if (bary_coords.x < 0.0) || (bary_coords.y < 0.0) || (bary_coords.z < 0.0) { return; }
+
+        let frag_depth = Self::get_frag_depth(vertex_positions, bary_coords);
 
         if frag_depth < 0.0 || frag_depth > 1.0 { return }
 

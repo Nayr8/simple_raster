@@ -7,6 +7,7 @@ use std::fs::File;
 use std::io::BufReader;
 use std::path::Path;
 use std::time::Instant;
+use crate::rasterizer::texture2d::Texture2D;
 
 mod mesh;
 mod shader;
@@ -89,8 +90,8 @@ fn main() {
         ]),
     ]);
 
-    let texture = load_texture("african_head_diffuse.tga").unwrap();
-    let texture2 = load_texture("blending_transparent_window.png").unwrap();
+    let texture: Texture2D = load_texture("african_head_diffuse.tga").unwrap().into();
+    let texture2: Texture2D = load_texture("blending_transparent_window.png").unwrap().into();
 
     let mut buffer = vec![0; WIDTH * HEIGHT];
     let mut renderer = Rasterizer::new(&mut buffer, WIDTH, HEIGHT);
@@ -113,6 +114,11 @@ fn main() {
     let mut model_rotation_angle = 0.0;
     let model_rotation_speed = 0.01;
 
+    renderer.storage_mut().set_texture2ds(vec![
+        texture,
+        texture2
+    ]);
+
     let shader = BasicShader;
 
     let window_transform = Translation3::from(Vector3::new(0.0, 0.0, 1.0)).to_homogeneous();
@@ -120,7 +126,7 @@ fn main() {
         camera.view_projection,
         window_transform,
     ]);
-    renderer.storage_mut().set_texture2ds(vec![texture2.clone().into()]);
+    renderer.storage_mut().set_texture2d_indices(vec![1]);
     renderer.draw_mesh(&mesh2, &shader);
 
     let mut model_transform = Matrix4::identity();
@@ -128,11 +134,9 @@ fn main() {
         camera.view_projection,
         model_transform,
     ]);
-    renderer.storage_mut().set_texture2ds(vec![texture.clone().into()]);
-    let now = Instant::now();
+    renderer.storage_mut().set_texture2d_indices(vec![0]);
     renderer.draw_mesh(mesh, &shader);
 
-    println!("{:?} fps", 1.0 / now.elapsed().as_secs_f64());
 
     let window_options = minifb::WindowOptions {
         resize: true,
@@ -142,7 +146,7 @@ fn main() {
 
     let mut window = minifb::Window::new("Simple Raster", WIDTH, HEIGHT, window_options).unwrap();
     window.update_with_buffer(renderer.buffer(), WIDTH, HEIGHT).unwrap();
-    window.set_target_fps(100);
+    //window.set_target_fps(100);
     let mut now = Instant::now();
     while window.is_open() && !window.is_key_down(Key::Escape) {
         //continue;
@@ -185,14 +189,14 @@ fn main() {
             camera.view_projection,
             window_transform,
         ]);
-        renderer.storage_mut().set_texture2ds(vec![texture2.clone().into()]);
+        renderer.storage_mut().set_texture2d_indices(vec![1]);
         renderer.draw_mesh(&mesh2, &shader);
 
         renderer.storage_mut().set_mat4s(vec![
             camera.view_projection,
             model_transform,
         ]);
-        renderer.storage_mut().set_texture2ds(vec![texture.clone().into()]);
+        renderer.storage_mut().set_texture2d_indices(vec![0]);
         renderer.draw_mesh(mesh, &shader);
 
         window.update_with_buffer(renderer.buffer(), WIDTH, HEIGHT).unwrap();
