@@ -1,9 +1,9 @@
-use nalgebra::{Matrix3, Matrix4, Vector2, Vector3, Vector4};
 use crate::mesh::{Face, Mesh};
 use crate::rasterizer::alpha_buffer::{AlphaBuffer, Fragment};
 use crate::rasterizer::bounding_box::BoundingBox;
 use crate::rasterizer::storage::Storage;
 use crate::shader::{FragmentShaderInputVariables, Shader, VertexShaderInputVariables, VertexShaderOutputVariables};
+use nalgebra::{Matrix4, Vector2, Vector3, Vector4};
 
 pub mod texture2d;
 mod bounding_box;
@@ -25,8 +25,6 @@ pub struct Rasterizer {
 }
 
 impl Rasterizer {
-    const Z_BUFFER_INIT: f32 = 100.0;
-
     pub fn new(width: usize, height: usize, options: RasterOptions) -> Self {
         let viewport = Self::build_viewport_matrix((0.0, 0.0), width as f32, height as f32);
 
@@ -48,21 +46,8 @@ impl Rasterizer {
             0.0 ,      0.0,          0.0, 1.0
         )
     }
-
-    fn calculate_barycentric_coordinates(&mut self, vertex_positions: [Vector2<f32>; 3], pixel: Vector2<f32>) -> Vector3<f32> {
-        let abc = Matrix3::new(
-            vertex_positions[0].x, vertex_positions[0].y, 1.0,
-            vertex_positions[1].x, vertex_positions[1].y, 1.0,
-            vertex_positions[2].x, vertex_positions[2].y, 1.0
-        );
-
-        if abc.determinant() < 1.0 {
-            return Vector3::<f32>::new(-1.0, 1.0, 1.0)
-        }
-
-        abc.try_inverse().unwrap().transpose() * Vector3::<f32>::new(pixel.x, pixel.y, 1.0)
-    }
-    fn calculate_barycentric_coordinates2(
+    
+    fn calculate_barycentric_coordinates(
         &mut self,
         vertex_positions: [Vector2<f32>; 3],
         pixel: Vector2<f32>,
@@ -115,7 +100,7 @@ impl Rasterizer {
 
         for x in bounding_box.x_iter() {
             for y in bounding_box.y_iter() {
-                let bary_coords = self.calculate_barycentric_coordinates2(screen_coords_2d, Vector2::new(x as f32, y as f32));
+                let bary_coords = self.calculate_barycentric_coordinates(screen_coords_2d, Vector2::new(x as f32, y as f32));
                 if (bary_coords.x < 0.0) || (bary_coords.y < 0.0) || (bary_coords.z < 0.0) { continue; }
 
                 let bary_clip = Vector3::new(
@@ -142,13 +127,6 @@ impl Rasterizer {
             }
         }
         false
-    }
-
-    fn convert_vertices_to_screen_space(&self, vertex_positions: &mut [Vector4<f32>; 3]) {
-        for i in 0..3 {
-            let v = vertex_positions[i];
-            vertex_positions[i] = self.viewport * v;
-        }
     }
 
     fn is_backface(vertex_positions: &[Vector4<f32>; 3]) -> bool {
@@ -216,15 +194,8 @@ impl Rasterizer {
         (r << 16) | (g << 8) | b
     }
 
-    fn convert_u32_to_colour(colour: u32) -> Vector3<f32> {
-        let r = (colour >> 16 & 0xFF) as f32 / 255.0;
-        let g = (colour >> 8 & 0xFF) as f32 / 255.0;
-        let b = (colour & 0xFF) as f32 / 255.0;
-        Vector3::new(r, g, b)
-    }
-
     pub fn draw_mesh(&mut self, mesh: &Mesh, shader: &impl Shader) {
-        let mut faces = mesh.faces.iter().map(|face| {
+        let faces = mesh.faces.iter().map(|face| {
             let vertex_outputs = self.run_vertex_shader(&face, shader);
             let vertex_positions = [
                 vertex_outputs[0].position,

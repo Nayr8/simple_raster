@@ -7,11 +7,13 @@ use std::fs::File;
 use std::io::BufReader;
 use std::path::Path;
 use std::time::Instant;
+use crate::post_processor::{PostProcessor, PostProcessorOptions};
 use crate::rasterizer::texture2d::Texture2D;
 
 mod mesh;
 mod shader;
 mod rasterizer;
+mod post_processor;
 
 fn load_texture(path: impl AsRef<Path>) -> Option<image::RgbaImage> {
     let img = image::open(path).ok()?;
@@ -71,8 +73,6 @@ impl PerspectiveCamera {
 fn main() {
     const WIDTH: usize = 1280;
     const HEIGHT: usize = 720;
-    //const WIDTH: usize = 20;
-    //const HEIGHT: usize = 20;
 
     let mut mesh_loader = ObjLoader::new();
     let file = File::open("african_head.obj").unwrap();
@@ -99,7 +99,11 @@ fn main() {
         cull_backfaces: false,
         background_colour: Vector3::new(0.529, 0.808, 0.980),
     };
-    let mut renderer = Rasterizer::new(WIDTH, HEIGHT, render_options);
+    let mut rasterizer = Rasterizer::new(WIDTH, HEIGHT, render_options);
+    let post_processor_options = PostProcessorOptions {
+        fxaa: true,
+    };
+    let mut post_processor = PostProcessor::new(WIDTH, HEIGHT, post_processor_options);
     
     let mut buffer = vec![0_u32; WIDTH * HEIGHT];
 
@@ -121,7 +125,7 @@ fn main() {
     let mut model_rotation_angle = 0.0;
     let model_rotation_speed = 0.01;
 
-    renderer.storage_mut().set_texture2ds(vec![
+    rasterizer.storage_mut().set_texture2ds(vec![
         texture,
         texture2
     ]);
@@ -129,20 +133,20 @@ fn main() {
     let shader = BasicShader;
 
     let window_transform = Translation3::from(Vector3::new(0.0, 0.0, 1.0)).to_homogeneous();
-    renderer.storage_mut().set_mat4s(vec![
+    rasterizer.storage_mut().set_mat4s(vec![
         camera.view_projection,
         window_transform,
     ]);
-    renderer.storage_mut().set_texture2d_indices(vec![1]);
-    renderer.draw_mesh(&mesh2, &shader);
+    rasterizer.storage_mut().set_texture2d_indices(vec![1]);
+    rasterizer.draw_mesh(&mesh2, &shader);
 
     let mut model_transform = Matrix4::identity();
-    renderer.storage_mut().set_mat4s(vec![
+    rasterizer.storage_mut().set_mat4s(vec![
         camera.view_projection,
         model_transform,
     ]);
-    renderer.storage_mut().set_texture2d_indices(vec![0]);
-    renderer.draw_mesh(mesh, &shader);
+    rasterizer.storage_mut().set_texture2d_indices(vec![0]);
+    rasterizer.draw_mesh(mesh, &shader);
 
 
     let window_options = minifb::WindowOptions {
@@ -152,7 +156,8 @@ fn main() {
     };
 
     let mut window = minifb::Window::new("Simple Raster", WIDTH, HEIGHT, window_options).unwrap();
-    renderer.render_to_buffer(&mut buffer);
+    rasterizer.render_to_buffer(&mut buffer);
+    post_processor.process(&mut buffer);
     window.update_with_buffer(&buffer, WIDTH, HEIGHT).unwrap();
     window.set_target_fps(100);
     let mut now = Instant::now();
@@ -191,22 +196,23 @@ fn main() {
         let model_rotation = Rotation3::from_axis_angle(&Vector3::y_axis(), model_rotation_angle).to_homogeneous();
         model_transform = model_rotation;
 
-        renderer.storage_mut().set_mat4s(vec![
+        rasterizer.storage_mut().set_mat4s(vec![
             camera.view_projection,
             window_transform,
         ]);
-        renderer.storage_mut().set_texture2d_indices(vec![1]);
-        renderer.draw_mesh(&mesh2, &shader);
+        rasterizer.storage_mut().set_texture2d_indices(vec![1]);
+        rasterizer.draw_mesh(&mesh2, &shader);
 
-        renderer.storage_mut().set_mat4s(vec![
+        rasterizer.storage_mut().set_mat4s(vec![
             camera.view_projection,
             model_transform,
         ]);
-        renderer.storage_mut().set_texture2d_indices(vec![0]);
-        renderer.draw_mesh(mesh, &shader);
+        rasterizer.storage_mut().set_texture2d_indices(vec![0]);
+        rasterizer.draw_mesh(mesh, &shader);
 
         
-        renderer.render_to_buffer(&mut buffer);
+        rasterizer.render_to_buffer(&mut buffer);
+        post_processor.process(&mut buffer);
         window.update_with_buffer(&buffer, WIDTH, HEIGHT).unwrap();
         println!("{:?} fps", 1.0 / now.elapsed().as_secs_f64());
         now = Instant::now();

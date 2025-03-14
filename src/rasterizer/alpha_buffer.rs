@@ -9,8 +9,6 @@ pub struct Fragment {
 
 
 pub struct AlphaBuffer {
-    width: usize,
-    height: usize,
     fragments: Vec<LinkedList<Fragment>>,
     background: Vec<Fragment>,
     background_colour: Vector4<f32>,
@@ -26,8 +24,6 @@ impl AlphaBuffer {
         let background_colour = background_colour.push(1.0);
 
         AlphaBuffer {
-            width,
-            height,
             fragments,
             background: vec![Fragment {
                 colour: background_colour,
