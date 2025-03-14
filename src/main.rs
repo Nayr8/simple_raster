@@ -95,12 +95,13 @@ fn main() {
     let texture: Texture2D = load_texture("african_head_diffuse.tga").unwrap().into();
     let texture2: Texture2D = load_texture("blending_transparent_window.png").unwrap().into();
 
-    let mut buffer = vec![0; WIDTH * HEIGHT];
-
     let render_options = RasterOptions {
         cull_backfaces: false,
+        background_colour: Vector3::new(0.529, 0.808, 0.980),
     };
-    let mut renderer = Rasterizer::new(&mut buffer, WIDTH, HEIGHT, render_options);
+    let mut renderer = Rasterizer::new(WIDTH, HEIGHT, render_options);
+    
+    let mut buffer = vec![0_u32; WIDTH * HEIGHT];
 
 
     let fovy = 60.0 * (std::f32::consts::PI / 180.0); // 60 degrees fov y
@@ -151,8 +152,9 @@ fn main() {
     };
 
     let mut window = minifb::Window::new("Simple Raster", WIDTH, HEIGHT, window_options).unwrap();
-    window.update_with_buffer(renderer.buffer(), WIDTH, HEIGHT).unwrap();
-    //window.set_target_fps(100);
+    renderer.render_to_buffer(&mut buffer);
+    window.update_with_buffer(&buffer, WIDTH, HEIGHT).unwrap();
+    window.set_target_fps(100);
     let mut now = Instant::now();
     while window.is_open() && !window.is_key_down(Key::Escape) {
         let movement_speed = 0.05;
@@ -195,7 +197,6 @@ fn main() {
         ]);
         renderer.storage_mut().set_texture2d_indices(vec![1]);
         renderer.draw_mesh(&mesh2, &shader);
-        //println!("Depth buffer 1 {:?}", renderer.z_buffer);
 
         renderer.storage_mut().set_mat4s(vec![
             camera.view_projection,
@@ -203,10 +204,10 @@ fn main() {
         ]);
         renderer.storage_mut().set_texture2d_indices(vec![0]);
         renderer.draw_mesh(mesh, &shader);
-        //println!("Depth buffer 2 {:?}", renderer.z_buffer);
 
-        window.update_with_buffer(renderer.buffer(), WIDTH, HEIGHT).unwrap();
-        renderer.clear();
+        
+        renderer.render_to_buffer(&mut buffer);
+        window.update_with_buffer(&buffer, WIDTH, HEIGHT).unwrap();
         println!("{:?} fps", 1.0 / now.elapsed().as_secs_f64());
         now = Instant::now();
     }

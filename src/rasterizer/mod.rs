@@ -1,5 +1,6 @@
 use nalgebra::{Matrix3, Matrix4, Vector2, Vector3, Vector4};
 use crate::mesh::{Face, Mesh};
+use crate::rasterizer::alpha_buffer::{AlphaBuffer, Fragment};
 use crate::rasterizer::bounding_box::BoundingBox;
 use crate::rasterizer::storage::Storage;
 use crate::shader::{FragmentShaderInputVariables, Shader, VertexShaderInputVariables, VertexShaderOutputVariables};
@@ -7,39 +8,35 @@ use crate::shader::{FragmentShaderInputVariables, Shader, VertexShaderInputVaria
 pub mod texture2d;
 mod bounding_box;
 pub mod storage;
+mod alpha_buffer;
 
 pub struct RasterOptions {
     pub cull_backfaces: bool,
+    pub background_colour: Vector3<f32>,
 }
 
-pub struct Rasterizer<'a> {
-    buffer: &'a mut [u32],
+pub struct Rasterizer {
     width: usize,
     height: usize,
-    pub z_buffer: Vec<f32>,
-    alpha_buffer: Vec<f32>,
+    alpha_buffer: AlphaBuffer,
     storage: Storage,
     viewport: Matrix4<f32>,
     options: RasterOptions,
-    accumulated_colour_buffer: Vec<Vector3<f32>>,
 }
 
-impl<'a> Rasterizer<'a> {
+impl Rasterizer {
     const Z_BUFFER_INIT: f32 = 100.0;
 
-    pub fn new(buffer: &'a mut [u32], width: usize, height: usize, options: RasterOptions) -> Self {
+    pub fn new(width: usize, height: usize, options: RasterOptions) -> Self {
         let viewport = Self::build_viewport_matrix((0.0, 0.0), width as f32, height as f32);
 
         Self {
-            z_buffer: vec![Self::Z_BUFFER_INIT; width * height],
-            alpha_buffer: vec![0.0; width * height],
-            buffer,
+            alpha_buffer: AlphaBuffer::new(width, height, options.background_colour),
             width,
             storage: Storage::default(),
             height,
             viewport,
             options,
-            accumulated_colour_buffer: vec![Vector3::new(0.0, 0.0, 0.0); width * height],
         }
     }
 
@@ -50,13 +47,6 @@ impl<'a> Rasterizer<'a> {
             0.0,       0.0 ,         1.0, 0.0,
             0.0 ,      0.0,          0.0, 1.0
         )
-    }
-
-    pub fn clear(&mut self) {
-        self.buffer.fill(0);
-        self.alpha_buffer.fill(0.0);
-        self.z_buffer.fill(Self::Z_BUFFER_INIT);
-        self.accumulated_colour_buffer.fill(Vector3::new(0.0, 0.0, 0.0));
     }
 
     fn calculate_barycentric_coordinates(&mut self, vertex_positions: [Vector2<f32>; 3], pixel: Vector2<f32>) -> Vector3<f32> {
@@ -138,16 +128,7 @@ impl<'a> Rasterizer<'a> {
                 let frag_depth = Self::get_frag_depth(vertex_positions, bary_clip);
 
                 let index = x + y * self.width;
-                if frag_depth > self.z_buffer[index] {
-                    continue
-                }
-
-                let Some(alpha) = self.draw_pixel(index, &vertex_outputs, shader, bary_clip) else { continue };
-
-                self.alpha_buffer[index] = alpha;
-                if alpha >= 0.99 {
-                    self.z_buffer[index] = frag_depth;
-                }
+                self.draw_pixel(index, &vertex_outputs, shader, bary_clip, frag_depth);
             }
         }
     }
@@ -193,38 +174,39 @@ impl<'a> Rasterizer<'a> {
         ))
     }
 
-    fn blend_colours(&self, index: usize, colour: Vector4<f32>) -> Vector4<f32> {
-        let fragment_alpha = colour.w;
-        let base_colour = Self::convert_u32_to_colour(self.get_pixel_from_index(index));
-        let accumulated_alpha = self.alpha_buffer[index];
-
-        let alpha_contribution = fragment_alpha - accumulated_alpha;
-        let blended_colour = {
-            let foreground = colour.xyz() * alpha_contribution;
-            let background = base_colour.xyz() * (1.0 - alpha_contribution);
-            foreground + background
-        };
-        let final_alpha = fragment_alpha + accumulated_alpha * (1.0 - fragment_alpha);
-
-        blended_colour.push(final_alpha)
-    }
-
     #[inline(always)]
     fn draw_pixel(&mut self,
                   index: usize,
                   vertex_outputs: &[VertexShaderOutputVariables; 3],
                   shader: &impl Shader,
-                  bary_clip: Vector3<f32>) -> Option<f32> {
+                  bary_clip: Vector3<f32>,
+                  frag_depth: f32) {
+        
+        if frag_depth >= self.alpha_buffer.get_background(index).depth { return }
+        
 
-        let colour = self.run_fragment_shader(bary_clip, vertex_outputs, shader)?;
-
-        // TODO FIX the blended colour is causing my ordering bug
-        let blended_colour = self.blend_colours(index, colour);
-        //let blended_colour = colour;
-
-        self.set_pixel_from_index(index, Self::convert_colour_to_u32(blended_colour.xyz()));
-
-        Some(blended_colour.w)
+        let Some(colour) = self.run_fragment_shader(bary_clip, vertex_outputs, shader) else { return };
+        
+        let alpha = colour.w;
+        
+        if alpha <= 0.0001 { return }
+        
+        self.alpha_buffer.add_fragment(index, Fragment {
+            colour,
+            depth: frag_depth,
+        });
+    }
+    
+    pub fn render_to_buffer(&mut self, buffer: &mut [u32]) {
+        if buffer.len() != self.width * self.height {
+            panic!("Buffer length does not match image size");
+        }
+        
+        for index in 0..self.width * self.height {
+            let colour = self.alpha_buffer.resolve_fragment(index);
+            
+            buffer[index] = Self::convert_colour_to_u32(colour);
+        }
     }
 
     fn convert_colour_to_u32(colour: Vector3<f32>) -> u32 {
@@ -285,34 +267,6 @@ impl<'a> Rasterizer<'a> {
 
     pub fn storage_mut(&mut self) -> &mut Storage {
         &mut self.storage
-    }
-
-    fn set_pixel(&mut self, x: usize, y: usize, colour: u32) {
-        if (x >= self.width) || (y >= self.height) {
-            return;
-        }
-        let index = y * self.width + x;
-        self.buffer[index] = colour;
-    }
-
-    fn set_pixel_from_index(&mut self, index: usize, colour: u32) {
-        self.buffer[index] = colour;
-    }
-
-    fn get_pixel(&self, x: usize, y: usize) -> u32 {
-        if (x >= self.width) || (y >= self.height) {
-            return 0;
-        }
-        let index = y * self.width + x;
-        self.buffer[index]
-    }
-
-    fn get_pixel_from_index(&self, index: usize) -> u32 {
-        self.buffer[index]
-    }
-
-    pub fn buffer(&self) -> &[u32] {
-        self.buffer
     }
 }
 
