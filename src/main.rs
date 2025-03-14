@@ -1,5 +1,5 @@
 use crate::mesh::{Face, Mesh, ObjLoader, Vertex};
-use crate::rasterizer::Rasterizer;
+use crate::rasterizer::{RasterOptions, Rasterizer};
 use crate::shader::BasicShader;
 use minifb::Key;
 use nalgebra::{Matrix4, Point3, Rotation3, Translation3, Vector3, Vector4};
@@ -71,6 +71,8 @@ impl PerspectiveCamera {
 fn main() {
     const WIDTH: usize = 1280;
     const HEIGHT: usize = 720;
+    //const WIDTH: usize = 20;
+    //const HEIGHT: usize = 20;
 
     let mut mesh_loader = ObjLoader::new();
     let file = File::open("african_head.obj").unwrap();
@@ -94,7 +96,11 @@ fn main() {
     let texture2: Texture2D = load_texture("blending_transparent_window.png").unwrap().into();
 
     let mut buffer = vec![0; WIDTH * HEIGHT];
-    let mut renderer = Rasterizer::new(&mut buffer, WIDTH, HEIGHT);
+
+    let render_options = RasterOptions {
+        cull_backfaces: false,
+    };
+    let mut renderer = Rasterizer::new(&mut buffer, WIDTH, HEIGHT, render_options);
 
 
     let fovy = 60.0 * (std::f32::consts::PI / 180.0); // 60 degrees fov y
@@ -149,8 +155,6 @@ fn main() {
     //window.set_target_fps(100);
     let mut now = Instant::now();
     while window.is_open() && !window.is_key_down(Key::Escape) {
-        //continue;
-
         let movement_speed = 0.05;
         let rotation_speed = 0.02;
 
@@ -191,6 +195,7 @@ fn main() {
         ]);
         renderer.storage_mut().set_texture2d_indices(vec![1]);
         renderer.draw_mesh(&mesh2, &shader);
+        //println!("Depth buffer 1 {:?}", renderer.z_buffer);
 
         renderer.storage_mut().set_mat4s(vec![
             camera.view_projection,
@@ -198,6 +203,7 @@ fn main() {
         ]);
         renderer.storage_mut().set_texture2d_indices(vec![0]);
         renderer.draw_mesh(mesh, &shader);
+        //println!("Depth buffer 2 {:?}", renderer.z_buffer);
 
         window.update_with_buffer(renderer.buffer(), WIDTH, HEIGHT).unwrap();
         renderer.clear();
