@@ -1,5 +1,6 @@
 A simple software renderer that supports:
 - Custom OpenGl like Shaders
+- Backface Culling
 - Perspective Camera
 - Order Independent Transparency
 - Anti-aliasing (FXAA)
