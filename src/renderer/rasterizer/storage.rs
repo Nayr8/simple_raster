@@ -1,5 +1,5 @@
 use nalgebra::Matrix4;
-use crate::rasterizer::texture2d::Texture2D;
+use crate::renderer::rasterizer::texture2d::Texture2D;
 
 #[derive(Default)]
 pub struct Storage {

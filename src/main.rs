@@ -1,5 +1,4 @@
 use crate::mesh::{Face, Mesh, ObjLoader, Vertex};
-use crate::rasterizer::{RasterOptions, Rasterizer};
 use crate::shader::BasicShader;
 use minifb::Key;
 use nalgebra::{Matrix4, Point3, Rotation3, Translation3, Vector3, Vector4};
@@ -7,13 +6,14 @@ use std::fs::File;
 use std::io::BufReader;
 use std::path::Path;
 use std::time::Instant;
-use crate::post_processor::{PostProcessor, PostProcessorOptions};
-use crate::rasterizer::texture2d::Texture2D;
+use crate::renderer::post_processor::PostProcessorOptions;
+use crate::renderer::rasterizer::RasterOptions;
+use crate::renderer::rasterizer::texture2d::Texture2D;
+use crate::renderer::{Renderer, RendererOptions};
 
 mod mesh;
 mod shader;
-mod rasterizer;
-mod post_processor;
+mod renderer;
 
 fn load_texture(path: impl AsRef<Path>) -> Option<image::RgbaImage> {
     let img = image::open(path).ok()?;
@@ -95,15 +95,16 @@ fn main() {
     let texture: Texture2D = load_texture("african_head_diffuse.tga").unwrap().into();
     let texture2: Texture2D = load_texture("blending_transparent_window.png").unwrap().into();
 
-    let render_options = RasterOptions {
-        cull_backfaces: false,
-        background_colour: Vector3::new(0.529, 0.808, 0.980),
+    let render_options = RendererOptions {
+        raster_options: RasterOptions {
+            cull_backfaces: false,
+            background_colour: Vector3::new(0.529, 0.808, 0.980),
+        },
+        post_processor_options: PostProcessorOptions {
+            fxaa: true,
+        }
     };
-    let mut rasterizer = Rasterizer::new(WIDTH, HEIGHT, render_options);
-    let post_processor_options = PostProcessorOptions {
-        fxaa: true,
-    };
-    let mut post_processor = PostProcessor::new(WIDTH, HEIGHT, post_processor_options);
+    let mut renderer = Renderer::new(WIDTH, HEIGHT, render_options);
     
     let mut buffer = vec![0_u32; WIDTH * HEIGHT];
 
@@ -125,7 +126,7 @@ fn main() {
     let mut model_rotation_angle = 0.0;
     let model_rotation_speed = 0.01;
 
-    rasterizer.storage_mut().set_texture2ds(vec![
+    renderer.rasterizer.storage_mut().set_texture2ds(vec![
         texture,
         texture2
     ]);
@@ -133,33 +134,32 @@ fn main() {
     let shader = BasicShader;
 
     let window_transform = Translation3::from(Vector3::new(0.0, 0.0, 1.0)).to_homogeneous();
-    rasterizer.storage_mut().set_mat4s(vec![
+    renderer.rasterizer.storage_mut().set_mat4s(vec![
         camera.view_projection,
         window_transform,
     ]);
-    rasterizer.storage_mut().set_texture2d_indices(vec![1]);
-    rasterizer.draw_mesh(&mesh2, &shader);
+    renderer.rasterizer.storage_mut().set_texture2d_indices(vec![1]);
+    renderer.rasterizer.draw_mesh(&mesh2, &shader);
 
     let mut model_transform = Matrix4::identity();
-    rasterizer.storage_mut().set_mat4s(vec![
+    renderer.rasterizer.storage_mut().set_mat4s(vec![
         camera.view_projection,
         model_transform,
     ]);
-    rasterizer.storage_mut().set_texture2d_indices(vec![0]);
-    rasterizer.draw_mesh(mesh, &shader);
+    renderer.rasterizer.storage_mut().set_texture2d_indices(vec![0]);
+    renderer.rasterizer.draw_mesh(mesh, &shader);
 
+
+    renderer.render(&mut buffer);
 
     let window_options = minifb::WindowOptions {
         resize: true,
         scale_mode: minifb::ScaleMode::Stretch,
         ..Default::default()
     };
-
     let mut window = minifb::Window::new("Simple Raster", WIDTH, HEIGHT, window_options).unwrap();
-    rasterizer.render_to_buffer(&mut buffer);
-    post_processor.process(&mut buffer);
     window.update_with_buffer(&buffer, WIDTH, HEIGHT).unwrap();
-    window.set_target_fps(100);
+    //window.set_target_fps(100);
     let mut now = Instant::now();
     while window.is_open() && !window.is_key_down(Key::Escape) {
         let movement_speed = 0.05;
@@ -196,23 +196,22 @@ fn main() {
         let model_rotation = Rotation3::from_axis_angle(&Vector3::y_axis(), model_rotation_angle).to_homogeneous();
         model_transform = model_rotation;
 
-        rasterizer.storage_mut().set_mat4s(vec![
+        renderer.rasterizer.storage_mut().set_mat4s(vec![
             camera.view_projection,
             window_transform,
         ]);
-        rasterizer.storage_mut().set_texture2d_indices(vec![1]);
-        rasterizer.draw_mesh(&mesh2, &shader);
+        renderer.rasterizer.storage_mut().set_texture2d_indices(vec![1]);
+        renderer.rasterizer.draw_mesh(&mesh2, &shader);
 
-        rasterizer.storage_mut().set_mat4s(vec![
+        renderer.rasterizer.storage_mut().set_mat4s(vec![
             camera.view_projection,
             model_transform,
         ]);
-        rasterizer.storage_mut().set_texture2d_indices(vec![0]);
-        rasterizer.draw_mesh(mesh, &shader);
+        renderer.rasterizer.storage_mut().set_texture2d_indices(vec![0]);
+        renderer.rasterizer.draw_mesh(mesh, &shader);
 
-        
-        rasterizer.render_to_buffer(&mut buffer);
-        post_processor.process(&mut buffer);
+
+        renderer.render(&mut buffer);
         window.update_with_buffer(&buffer, WIDTH, HEIGHT).unwrap();
         println!("{:?} fps", 1.0 / now.elapsed().as_secs_f64());
         now = Instant::now();

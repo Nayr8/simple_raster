@@ -1,5 +1,5 @@
-use crate::rasterizer::storage::Storage;
 use nalgebra::{Vector2, Vector3, Vector4};
+use crate::renderer::rasterizer::storage::Storage;
 
 pub trait Shader : Send + Sync {
     fn vertex(&self, input_vars: VertexShaderInputVariables) -> VertexShaderOutputVariables;

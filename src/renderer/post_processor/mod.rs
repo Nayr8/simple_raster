@@ -1,6 +1,4 @@
-
-
-
+use rayon::prelude::*;
 
 pub struct PostProcessorOptions {
     pub fxaa: bool,
@@ -30,24 +28,40 @@ impl PostProcessor {
     }
     
     fn run_fxaa(&mut self, buffer: &mut [u32]) {
-        for y in 1..(self.height - 1) {
-            for x in 1..(self.width - 1) {
-                self.run_fxaa_for_pixel(buffer, x, y);                
-            }
-        }
+        let width = self.width;
+        let height = self.height;
+        
+        self.buffer.par_chunks_mut(width)
+            .enumerate()
+            .for_each(|(y, row)| {
+                if y == 0 || y == height - 1 {
+                    row.copy_from_slice(&buffer[y * width..(y + 1) * width]);
+                    return;
+                }
+                
+                for x in 0..width {
+                    if x == 0 || x == width - 1 {
+                        row[x] = buffer[y * width + x];
+                        continue;
+                    }
+                    
+                    Self::run_fxaa_for_pixel(buffer, row, x, y, width);
+                }
+            });
+        
         buffer.copy_from_slice(&self.buffer);
     }
     
-    fn run_fxaa_for_pixel(&mut self, buffer: &mut [u32], x: usize, y: usize) {
-        let index = y * self.width + x;
+    fn run_fxaa_for_pixel(buffer: &[u32], row: &mut [u32], x: usize, y: usize, width: usize) {
+        let index = y * width + x;
         
         let left_luma = Self::luminance(buffer[index - 1]);
         let right_luma = Self::luminance(buffer[index + 1]);
-        let top_luma = Self::luminance(buffer[index - self.width]);
-        let bottom_luma = Self::luminance(buffer[index + self.width]);
+        let top_luma = Self::luminance(buffer[index - width]);
+        let bottom_luma = Self::luminance(buffer[index + width]);
         
         let luma_diff = (left_luma - right_luma).abs() + (top_luma - bottom_luma).abs();
-        let luma_diff_threshold = 0.25;
+        let luma_diff_threshold = 0.1;
         
         if luma_diff > luma_diff_threshold {
             let mut r_sum = 0;
@@ -56,7 +70,7 @@ impl PostProcessor {
             
             for offset_y in (y - 1)..=(y + 1) {
                 for offset_x in (x - 1)..=(x + 1) {
-                    let index = offset_y * self.width + offset_x;
+                    let index = offset_y * width + offset_x;
                     let pixel = buffer[index];
                     r_sum += (pixel >> 16) & 0xff;
                     g_sum += (pixel >> 8) & 0xff;
@@ -67,10 +81,10 @@ impl PostProcessor {
             let r_avg = r_sum / 9;
             let g_avg = g_sum / 9;
             let b_avg = b_sum / 9;
-            
-            self.buffer[index] = (r_avg << 16) | (g_avg << 8) | b_avg;
+
+            row[x] = (r_avg << 16) | (g_avg << 8) | b_avg;
         } else {
-            self.buffer[index] = buffer[index];
+            row[x] = buffer[index];
         }
     }
     
